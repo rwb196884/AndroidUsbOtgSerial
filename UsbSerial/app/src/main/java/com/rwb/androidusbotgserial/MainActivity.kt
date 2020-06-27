@@ -70,7 +70,10 @@ class MainActivity : AppCompatActivity() {
             usbSerial.read {
                 try {
                     this.runOnUiThread(Runnable {
-                        serial.append(String(it, Charsets.UTF_16))
+//                        val s = String(it, Charsets.UTF_16)
+//                        val t = String(it, Charsets.UTF_8)
+//                        val u = String(it, Charsets.US_ASCII)
+                        serial.append(String(it, Charsets.UTF_8))
                     })
                 }
                 catch(e:Exception)
