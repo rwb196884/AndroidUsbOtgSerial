@@ -1,35 +1,24 @@
 package com.rwb.androidusbotgserial
 
-import android.Manifest
 import android.app.PendingIntent
-import android.bluetooth.BluetoothManager
-import android.bluetooth.BluetoothSocket
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.pm.PackageManager
 import android.hardware.usb.*
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.util.Log
-import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
-import androidx.core.content.ContextCompat
-import androidx.lifecycle.MutableLiveData
-import androidx.lifecycle.Observer
-import androidx.lifecycle.ViewModel
-import java.io.IOException
-import java.nio.charset.Charset
-import java.util.*
+import com.felhr.usbserial.UsbSerialDevice
+import com.felhr.usbserial.UsbSerialInterface
 
 class MainActivity : AppCompatActivity() {
     private lateinit var serial:TextView
-    private lateinit var workerThread : Thread
     private lateinit var usbManager:UsbManager
     private lateinit var usbDevice:UsbDevice
-
+    private lateinit var usbSerial: UsbSerialDevice
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -65,45 +54,37 @@ class MainActivity : AppCompatActivity() {
             serial.append("No accessories.")
         }
 
-        // USB setup now continues in onResume.
+        // Now go to onResume.
     }
 
 
-    private fun startWorker() {
-        workerThread = Thread(Runnable {
-            val usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
-            val usbDeviceConnection :UsbDeviceConnection = usbManager.openDevice(usbDevice)
-
-            val usbInterface:UsbInterface = usbDevice.getInterface(0)
-            val ep:UsbEndpoint = usbInterface.getEndpoint(0)
-
-            usbDeviceConnection.claimInterface(usbInterface, true)
-
-
-            var buffer: ByteArray = ByteArray(1024)
-
-            usbDeviceConnection.bulkTransfer(ep, buffer, 1024, 0)
-
-//            while (!Thread.currentThread().isInterrupted  && bts?.isConnected ?: false) {
-//                try {
-//                    val bytesAvailable: Int = bts?.inputStream?.available() ?: 0
-//                    if (bytesAvailable > 0) {
-//                        val buffer = ByteArray(bytesAvailable)
-//                        bts?.inputStream?.read(buffer)
-//                        val data = String(buffer, Charset.defaultCharset())
-//
-//                        runOnUiThread {
-//                            serial.append(data)
-//                        }
-//                    }
-//                } catch (ex: IOException) {
-//                    Toast.makeText(this, "Bluetooth connection lost.", Toast.LENGTH_LONG).show()
-//                    //bluetoothButton?.visibility = View.VISIBLE
-//                    break;
-//                }
-//            }
-        })
-        workerThread.start()
+    fun startWorker() {
+        //workerThread = Thread(Runnable {
+        try {
+            if (!this::usbSerial.isInitialized) {
+                val usbDeviceConnection: UsbDeviceConnection = usbManager.openDevice(usbDevice)
+                usbSerial = UsbSerialDevice.createUsbSerialDevice(usbDevice, usbDeviceConnection)
+            }
+            usbSerial.open()
+            usbSerial.setBaudRate(9600)
+            usbSerial.read {
+                try {
+                    this.runOnUiThread(Runnable {
+                        serial.append(String(it, Charsets.UTF_16))
+                    })
+                }
+                catch(e:Exception)
+                {
+                    Log.e("RWB", "It's fucked.", e)
+                }
+            }
+        }
+        catch(e:Exception)
+        {
+            Log.e("RWB", "It's fucked.", e)
+        }
+//        })
+//        workerThread.start()
     }
 
     override fun onResume() {
@@ -113,24 +94,25 @@ class MainActivity : AppCompatActivity() {
         {
             val permissionIntent = PendingIntent.getBroadcast(this, 0, Intent(ACTION_USB_PERMISSION), 0)
             val filter = IntentFilter(ACTION_USB_PERMISSION)
-            registerReceiver(usbDevicePermissionReceiver, filter)
+            val br = UsbDevicePermissionReceiver(this)
+            registerReceiver(br, filter)
             usbManager.requestPermission(usbDevice, permissionIntent)
-        } else {
+        }
+        else {
             startWorker()
         }
     }
 
-
-
     override fun onPause() {
         super.onPause()
         // stop the worker.
+        usbSerial.close()
     }
 }
 
 private const val ACTION_USB_PERMISSION = "com.rwb.androidusbotgserial.USB_DEVICE_PERMISSION"
 
-private val usbDevicePermissionReceiver = object : BroadcastReceiver() {
+private class UsbDevicePermissionReceiver(val activity:MainActivity) : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         if (ACTION_USB_PERMISSION == intent.action) {
@@ -139,9 +121,9 @@ private val usbDevicePermissionReceiver = object : BroadcastReceiver() {
                 // ^^ Not a
 
                 if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
-                    startWorker()
+                    activity.startWorker()
                 } else {
-                    Log.d("com.rwb.androidusbotgserial", "permission denied for device $device")
+                    Log.d("RWB", "permission denied for device $device")
                 }
             }
         }
